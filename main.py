@@ -18,52 +18,79 @@ class NODESpectralExperiment:
 			batch_size: int,
 			t_span: np.ndarray,
 			model: nn.Module,
-			lr: float=0.01,
+			lr: float=0.001,
 			momentum: float=0.9,
 			n_epochs: int=1000,
 			loss: Callable=None,
+			n_snaps: int=5,
 		):
 		assert len(t_span) >= 2
 		assert ndim > 0
-		self.device = torch.device('cuda:' + str(args.gpu) if torch.cuda.is_available() else 'cpu')
+		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 		self.ndim = ndim
 		self.dydt = dydt
 		self.y0_bounds = y0_bounds
 		self.batch_size = batch_size
 		self.t_span = t_span
 		self.t_span_torch = torch.from_numpy(t_span).to(self.device)
-		self.model = model.double()
+		self.model = model.double().to(self.device)
 		self.optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
 		self.n_epochs = n_epochs
 		self.loss = nn.MSELoss() if loss is None else loss
+		self.n_snaps = n_snaps
+
+	def ground_truth(self, y0):
+		sol = solve_ivp(self.dydt, (self.t_span[0], self.t_span[-1]), y0, t_eval=self.t_span, method='LSODA')
+		return sol.y.T
+
+	def hypothesis(self, y0):
+		return deq.odeint(self.model, y0, self.t_span_torch).to(self.device)
 
 	def get_batch(self):
 		y0 = np.random.uniform(low=self.y0_bounds[:,0], high=self.y0_bounds[:,1], size=self.ndim)
-		sol = solve_ivp(self.dydt, (self.t_span[0], self.t_span[-1]), y0, t_eval=self.t_span, method='LSODA')
+		y = self.ground_truth(y0)
 		y0 = torch.from_numpy(y0).to(self.device)
-		y = torch.from_numpy(sol.y.T).to(self.device)
+		y = torch.from_numpy(y).to(self.device)
 		return y0, y
 
 	def train_epoch(self):
 		self.optimizer.zero_grad()
 		y0, y = self.get_batch()
-		pred_y = deq.odeint(self.model, y0, self.t_span_torch).to(self.device)
+		pred_y = self.hypothesis(y0)
 		loss = self.loss(pred_y, y)
 		loss_val = loss.item()
 		loss.backward()
 		self.optimizer.step()
 		return loss_val
 
+	def plot_ground_truth(self):
+		assert self.ndim == 2
+		y0, y = self.get_batch()
+		y = y.cpu().numpy()
+		plt.plot(y[:,0], y[:,1])
+		plt.show()
+
 	def run_and_visualize(self):
 		loss_history = []
+		snaps = []
+		y0, y = self.get_batch()
 		for i in range(self.n_epochs):
 			loss = self.train_epoch()
 			print(f'Epoch: {i} Loss: {loss}')
 			loss_history.append(loss)
+			with torch.no_grad():
+				if i == 0 or i % int(self.n_epochs / (self.n_snaps-1)) == 0:
+					pred_y = self.hypothesis(y0)
+					snaps.append(pred_y)
 
-		plt.plot(loss_history)
-		plt.xlabel('Epoch')
-		plt.ylabel('MSE Loss')
+		fig, axs = plt.subplots(nrows=1, ncols=1+self.n_snaps, figsize=(20, 4))
+		axs[0].plot(loss_history)
+		axs[0].set_xlabel('Epoch')
+		axs[0].set_ylabel('MSE Loss')
+		for i, pred_y in enumerate(snaps):
+			axs[i+1].plot(y[:,0], y[:,1], color='green', label='ground truth')
+			axs[i+1].plot(pred_y[:,0], pred_y[:,1], color='red', label='hypothesis')
+
 		plt.tight_layout()
 		plt.show()
 
@@ -74,9 +101,9 @@ Van der Pol oscillator
 def vdp_experiment():
 	ndim = 2
 	mu = 3.
-	y0_bounds = np.array([[-1, 1], [-1, 1]])
-	batch_size = 40
-	t_span = np.linspace(0, 10, 500)
+	y0_bounds = np.array([[-2, 2], [-4, 4]])
+	batch_size = 200
+	t_span = np.linspace(0, 20, 1000)
 
 	def dydt(t, y):
 		return np.array([y[1], mu*(1-y[0]**2)*y[1] - y[0]])
@@ -85,9 +112,9 @@ def vdp_experiment():
 		def __init__(self):
 			super().__init__()
 			self.net = nn.Sequential(
-				nn.Linear(2, 20),
+				nn.Linear(2, 10),
 				nn.Tanh(),
-				nn.Linear(20, 2),
+				nn.Linear(10, 2),
 			)
 			for m in self.net.modules():
 				if isinstance(m, nn.Linear):
@@ -98,7 +125,8 @@ def vdp_experiment():
 			return self.net(y)
 
 	model = Model()
-	experiment = NODESpectralExperiment(ndim, dydt, y0_bounds, batch_size, t_span, model)
+	experiment = NODESpectralExperiment(ndim, dydt, y0_bounds, batch_size, t_span, model, n_epochs=1000)
+	# experiment.plot_ground_truth()
 	experiment.run_and_visualize()
 
 '''

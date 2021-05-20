@@ -13,8 +13,8 @@ import scipy.fftpack
 parser = argparse.ArgumentParser('ODE demo')
 parser.add_argument('--method', type=str, choices=['dopri5', 'adams'], default='dopri5')
 parser.add_argument('--data_size', type=int, default=1000)
-parser.add_argument('--batch_time', type=int, default=100)
-parser.add_argument('--batch_size', type=int, default=40)
+parser.add_argument('--batch_time', type=int, default=50)
+parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--niters', type=int, default=3000)
 parser.add_argument('--test_freq', type=int, default=25)
 parser.add_argument('--viz', action='store_true')
@@ -42,8 +42,8 @@ device = torch.device('cuda:' + str(args.gpu) if torch.cuda.is_available() else 
 # t = torch.linspace(0., 100., args.data_size).to(device)
 
 ''' Chua ''' 
-true_y0 = torch.tensor([[1.0, 0, 0]]).to(device)
-t = torch.linspace(0., 15., args.data_size).to(device)
+true_y0 = torch.tensor([[0.1, 0., 0.]]).to(device)
+t = torch.linspace(0., 30., args.data_size).to(device)
 
 
 class Lambda(nn.Module):
@@ -109,11 +109,12 @@ def makedirs(dirname):
 if args.viz:
 	makedirs('png')
 	import matplotlib.pyplot as plt
+	from mpl_toolkits.mplot3d import Axes3D
 	from matplotlib.colors import LogNorm
 	from pylab import figure, cm
 	fig = plt.figure(figsize=(16, 6), facecolor='white')
 	ax_traj = fig.add_subplot(131, frameon=False)
-	ax_phase = fig.add_subplot(132, frameon=False)
+	ax_phase = fig.add_subplot(132, projection='3d')
 	# ax_vecfield = fig.add_subplot(143, frameon=False)
 	ax_spectra = fig.add_subplot(133, frameon=False)
 	plt.show(block=False)
@@ -124,43 +125,32 @@ if args.viz:
 def visualize(true_y, pred_y, odefunc, itr, spectra, freqs, epochs):
 
 	if args.viz:
-		# global cb
-		''' Van der Pol '''
-		# xmin, xmax = -2, 2
-		# ymin, ymax = -4, 4
 
-		''' Duffing ''' 
-		# xmin, xmax = -2, 2
-		# ymin, ymax = -2, 2
-
-		''' Lorenz ''' 
-		# xmin, xmax = -20, 20
-		# ymin, ymax = -20, 20
-
-		''' Chua ''' 
-		xmin, xmax = -3.0, 3.0
-		ymin, ymax = -0.8, 0.8
-		traj_min, traj_max = -4., 4.
+		true_y = true_y.cpu().numpy()
+		pred_y = pred_y.cpu().numpy()
 
 		ax_traj.cla()
 		ax_traj.set_title('Trajectories')
 		ax_traj.set_xlabel('t')
 		ax_traj.set_ylabel('x,y')
 		for k in range(true_y.shape[2]):
-			ax_traj.plot(t.cpu().numpy(), true_y.cpu().numpy()[:, 0, k], 'g-', label='true' if k == 0 else '')
-			ax_traj.plot(t.cpu().numpy(), pred_y.cpu().numpy()[:, 0, k], 'b--', label='predicted' if k == 0 else '')
+			ax_traj.plot(t.cpu().numpy(), true_y[:, 0, k], 'g-', label='true' if k == 0 else '')
+			ax_traj.plot(t.cpu().numpy(), pred_y[:, 0, k], 'b--', label='predicted' if k == 0 else '')
 		ax_traj.set_xlim(t.cpu().min(), t.cpu().max())
-		ax_traj.set_ylim(traj_min, traj_max)
+		ax_traj.set_ylim(-6., 6.)
 		ax_traj.legend()
 
 		ax_phase.cla()
 		ax_phase.set_title('Phase Portrait')
 		ax_phase.set_xlabel('x')
 		ax_phase.set_ylabel('y')
-		ax_phase.plot(true_y.cpu().numpy()[:, 0, 0], true_y.cpu().numpy()[:, 0, 1], 'g-')
-		ax_phase.plot(pred_y.cpu().numpy()[:, 0, 0], pred_y.cpu().numpy()[:, 0, 1], 'b--')
-		ax_phase.set_xlim(xmin, xmax)
-		ax_phase.set_ylim(ymin, ymax)
+		ax_phase.set_ylabel('z')
+
+		ax_phase.plot(true_y[:, 0, 0], true_y[:, 0, 1], true_y[:, 0, 2], 'g-')
+		ax_phase.plot(pred_y[:, 0, 0], pred_y[:, 0, 1], pred_y[:, 0, 2], 'b--')
+		ax_phase.set_xlim(-3., 3.)
+		ax_phase.set_ylim(-0.6, 0.6)
+		ax_phase.set_zlim(-6., 6.)
 
 		# ax_vecfield.cla()
 		# ax_vecfield.set_title('Learned Vector Field')
@@ -200,24 +190,22 @@ class ODEFunc(nn.Module):
 	def __init__(self):
 		super(ODEFunc, self).__init__()
 
-		self.fc1 = nn.Linear(3, 20)
+		self.fc1 = nn.Linear(3, 50)
 		self.s1 = nn.Tanh()
-		self.fc2 = nn.Linear(3, 20)
-		self.fc3 = nn.Linear(20, 3)
+		self.fc2 = nn.Linear(50, 3)
+		self.fc3 = nn.Linear(3, 50)
 		self.s2 = nn.Tanh()
-		self.fc4 = nn.Linear(20, 3)
-		self.fc5 = nn.Linear(3, 3)
+		self.fc4 = nn.Linear(50, 3)
 
-		fcs = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
-		for m in fcs:
-			nn.init.normal_(m.weight, mean=0, std=0.1)
-			nn.init.constant_(m.bias, val=0)
+		# fcs = [self.fc1, self.fc2, self.fc3, self.fc4, self.fc5]
+		# for m in fcs:
+		# 	nn.init.normal_(m.weight, mean=0, std=0.1)
+		# 	nn.init.constant_(m.bias, val=0)
 
 	def forward(self, t, y):
 		z1 = self.s1(self.fc1(y))
-		z2 = self.fc2(y)
-		z3 = self.fc3(z1) + self.s2(self.fc4(z2))
-		z4 = self.fc5(z3)
+		z2 = self.fc3(y)
+		z4 = self.fc2(self.s2(z1 + z2)) + self.fc4(z1 + z2)
 		return z4
 
 
@@ -258,8 +246,8 @@ if __name__ == '__main__':
 	spectra = []
 	# freqs = np.arange(args.data_size) * 2 * np.pi / args.data_size # FFT frequencies, lo to hi
 	freqs = np.arange(args.data_size) / args.data_size # FFT frequencies, lo to hi
-	bins = 120
-	bin_cutoff = 60
+	bins = 500
+	bin_cutoff = 25
 	freq_bins = np.digitize(freqs, np.linspace(freqs.min(), freqs.max(), bins+1), right=True)
 	freq_bins[0] = 1
 	freqs = np.array([freqs[freq_bins == i].max() for i in range(1, bin_cutoff+1)])
@@ -287,14 +275,11 @@ if __name__ == '__main__':
 
 					if itr // args.test_freq > 0:
 						# Store spectra
-						loss_sig = torch.abs(pred_y - true_y)[:,0,0]
+						# loss_sig = torch.abs(pred_y - true_y)[:,0,0]
 						# spectrum = spec_fun(loss_sig)
-						axis = 1
-						baseline = spec_fun(true_y[:,0,axis])
-						spectrum = np.abs(spec_fun(pred_y[:,0,axis]) - baseline) / np.abs(baseline)
-						# pdb.set_trace()
+						baseline = spec_fun(true_y.mean(axis=2)[:,0])
+						spectrum = np.abs(spec_fun(pred_y.mean(axis=2)[:,0]) - baseline) / np.abs(baseline)
 						spectrum = np.array([spectrum[freq_bins == i].sum() for i in range(1, bin_cutoff+1)])
-						# pdb.set_trace()
 						spectra.append(spectrum)
 						epochs.append(itr)
 						visualize(true_y, pred_y, func, ii, spectra, freqs, epochs)

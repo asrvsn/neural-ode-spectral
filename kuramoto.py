@@ -308,14 +308,11 @@ if __name__ == '__main__':
 
 					if itr // args.test_freq > 0:
 						# Store spectra
-						loss_sig = torch.abs(pred_y - true_y)[:,0,0]
+						# loss_sig = torch.abs(pred_y - true_y)[:,0,0]
 						# spectrum = spec_fun(loss_sig)
-						axis = 1
-						baseline = spec_fun(obs(true_y[:,0,axis]))
-						spectrum = np.abs(spec_fun(obs(pred_y[:,0,axis])) - baseline) / np.abs(baseline)
-						# pdb.set_trace()
+						baseline = spec_fun(obs(true_y.mean(axis=2)[:,0]))
+						spectrum = np.abs(spec_fun(obs(pred_y.mean(axis=2)[:,0])) - baseline) / np.abs(baseline)
 						spectrum = np.array([spectrum[freq_bins == i].sum() for i in range(1, bin_cutoff+1)])
-						# pdb.set_trace()
 						spectra.append(spectrum)
 						epochs.append(itr)
 						visualize(true_y, pred_y, func, ii, spectra, freqs, epochs)

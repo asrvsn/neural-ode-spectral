@@ -75,6 +75,9 @@ class NODESpectralExperiment:
 		plt.plot(y[:,0], y[:,1])
 		plt.show()
 
+	def spectrum(self, y0):
+		pass
+
 	def run_and_visualize(self):
 		loss_history = []
 		snaps = []
@@ -84,10 +87,10 @@ class NODESpectralExperiment:
 			loss = self.train_epoch(y0=y0, y=y)
 			print(f'Epoch: {i} Loss: {loss}')
 			loss_history.append(loss)
-			with torch.no_grad():
-				if i == 0 or i % int((self.n_epochs+1) / (self.n_snaps-1)) == 0:
+			if i == 0 or i % int((self.n_epochs+1) / (self.n_snaps-1)) == 0:
+				with torch.no_grad():
 					pred_y = self.hypothesis(y0[0])
-					snaps.append(pred_y)
+					snaps.append(pred_y.cpu().numpy())
 
 		fig, axs = plt.subplots(nrows=1, ncols=1+self.n_snaps, figsize=(20, 4))
 		axs[0].plot(loss_history)
@@ -143,6 +146,45 @@ def vdp_experiment():
 	experiment.run_and_visualize()
 
 '''
+Lotka-Volerra system
+'''
+def lv_experiment():
+	np.random.seed(1000)
+	ndim = 2
+	# prey
+	alpha, beta = 1.1, 0.4
+	# predator
+	delta, gamma = 0.1, 0.4
+	y0_bounds = np.array([[0, 1], [0, 1]])
+	batch_size = 10
+	t_span = np.linspace(0, 16, 100)
+
+	def dydt(t, y):
+		return np.array([alpha*y[0] - beta*y[0]*y[1], delta*y[0]*y[1] - gamma*y[1]])
+
+	class Model(nn.Module):
+		def __init__(self):
+			super().__init__()
+			self.net = nn.Sequential(
+				nn.Linear(2, 50),
+				nn.Tanh(),
+				nn.Linear(50, 2),
+			)
+			# try swish function
+			for m in self.net.modules():
+				if isinstance(m, nn.Linear):
+					nn.init.normal_(m.weight, mean=0, std=0.1)
+					nn.init.constant_(m.bias, val=0)
+
+		def forward(self, t, y):
+			return self.net(y)
+
+	model = Model()
+	experiment = NODESpectralExperiment(ndim, dydt, y0_bounds, batch_size, t_span, model, n_epochs=100, lr=0.01)
+	# experiment.plot_ground_truth(np.array([0.5, 0.5]))
+	experiment.run_and_visualize()
+
+'''
 Duffing equation
 '''
 # def system(alpha, beta, gamma, delta, u):
@@ -175,6 +217,7 @@ Duffing equation
 
 
 if __name__ == '__main__':
-	vdp_experiment()
+	# vdp_experiment()
+	lv_experiment()
 
 
